@@ -28,7 +28,42 @@ def create_suspect():
 
 @suspects_bp.route('/suspects/<int:suspect_id>', methods=['GET'])
 def get_suspect(suspect_id):
-    """특정 용의자 정보 조회"""
+    """특정 용의자 정보 조회
+    ---
+    tags:
+      - Suspects
+    parameters:
+      - in: path
+        name: suspect_id
+        type: integer
+        required: true
+        description: 용의자 ID
+    responses:
+      200:
+        description: 용의자 정보
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            suspect:
+              type: object
+              properties:
+                id:
+                  type: integer
+                name:
+                  type: string
+                age:
+                  type: integer
+                criminal_record:
+                  type: array
+                  items:
+                    type: string
+                risk_level:
+                  type: string
+      500:
+        description: 서버 오류
+    """
     try:
         # 여기서 특정 용의자 정보를 조회하는 로직 구현
         
@@ -51,7 +86,31 @@ def get_suspect(suspect_id):
 
 @suspects_bp.route('/suspects/<int:suspect_id>/logs', methods=['GET'])
 def get_suspect_logs(suspect_id):
-    """특정 용의자의 감지 로그 조회"""
+    """특정 용의자의 감지 로그 조회
+    ---
+    tags:
+      - Suspects
+    parameters:
+      - in: path
+        name: suspect_id
+        type: integer
+        required: true
+        description: 용의자 ID
+    responses:
+      200:
+        description: 감지 로그 목록
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            logs:
+              type: array
+              items:
+                type: object
+      500:
+        description: 서버 오류
+    """
     try:
         # 여기서 특정 용의자의 감지 로그를 조회하는 로직 구현
         

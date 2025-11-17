@@ -74,8 +74,12 @@ class FaceDataProcessor:
             self.face_app.prepare(ctx_id=0, det_size=(640, 640))
             
             print("✅ RetinaFace (얼굴검출) + ArcFace (임베딩) 모델 로드 완료")
-            print(f"📊 검출 모델: {self.face_app.det_model.__class__.__name__}")
-            print(f"🧠 인식 모델: {self.face_app.rec_model.__class__.__name__}")
+            if hasattr(self.face_app, 'det_model'):
+                print(f"📊 검출 모델: {self.face_app.det_model.__class__.__name__}")
+            if hasattr(self.face_app, 'rec_model'):
+                print(f"🧠 인식 모델: {self.face_app.rec_model.__class__.__name__}")
+            elif hasattr(self.face_app, 'models') and 'recognition' in self.face_app.models:
+                print(f"🧠 인식 모델: {self.face_app.models['recognition'].__class__.__name__}")
             return True
             
         except Exception as e:
@@ -107,18 +111,36 @@ class FaceDataProcessor:
             "valid_suspects": 0,
             "missing_images": [],
             "invalid_images": [],
-            "quality_warnings": []
+            "quality_warnings": [],
+            "found_images": []  # 실제로 찾은 이미지들
         }
+        
+        # 지원하는 이미지 확장자
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
         
         for suspect in self.metadata['suspects']:
             name_en = suspect['name_en']
-            required_images = suspect['images']['required_angles']
+            # folder_name이 있으면 사용, 없으면 name_en 사용
+            folder_name = suspect.get('folder_name', name_en)
+            folder_path = self.images_dir / folder_name
+            
+            # photo_requirements에서 모든 이미지 경로 수집
+            photo_reqs = suspect.get('photo_requirements', {})
+            required_images = []
+            if 'front_angles' in photo_reqs:
+                required_images.extend([f"{folder_name}/{img}" for img in photo_reqs['front_angles']])
+            if 'side_angles' in photo_reqs:
+                required_images.extend([f"{folder_name}/{img}" for img in photo_reqs['side_angles']])
+            if 'top_down' in photo_reqs:
+                required_images.extend([f"{folder_name}/{img}" for img in photo_reqs['top_down']])
             
             validation_results["total_suspects"] += 1
             suspect_valid = True
+            found_count = 0
             
             print(f"\n📸 {suspect['name']} ({name_en}) 검증 중...")
             
+            # 메타데이터에 정의된 이미지 검증
             for img_path in required_images:
                 full_path = self.images_dir / img_path
                 
@@ -127,10 +149,12 @@ class FaceDataProcessor:
                     print(f"  ❌ 누락: {img_path}")
                     suspect_valid = False
                 else:
+                    found_count += 1
                     # 이미지 품질 검사
                     quality_check = self.check_image_quality(full_path)
                     if quality_check["valid"]:
                         print(f"  ✅ 유효: {img_path} ({quality_check['resolution']})")
+                        validation_results["found_images"].append(str(full_path))
                     else:
                         validation_results["invalid_images"].append({
                             "path": str(full_path),
@@ -141,11 +165,35 @@ class FaceDataProcessor:
                         if "resolution_too_low" in quality_check["issues"]:
                             suspect_valid = False
             
-            if suspect_valid:
+            # 폴더에 실제로 존재하는 다른 이미지 파일들도 찾기
+            if folder_path.exists():
+                actual_images = []
+                for ext in image_extensions:
+                    actual_images.extend(list(folder_path.glob(f"*{ext}")))
+                    actual_images.extend(list(folder_path.glob(f"*{ext.upper()}")))
+                
+                # 메타데이터에 없는 이미지 파일들
+                for img_file in actual_images:
+                    relative_path = f"{folder_name}/{img_file.name}"
+                    if relative_path not in required_images:
+                        print(f"  ℹ️  추가 이미지 발견: {relative_path}")
+                        validation_results["found_images"].append(str(img_file))
+                        found_count += 1
+                        # 품질 검사
+                        quality_check = self.check_image_quality(img_file)
+                        if not quality_check["valid"]:
+                            validation_results["invalid_images"].append({
+                                "path": str(img_file),
+                                "issues": quality_check["issues"]
+                            })
+            
+            # 최소 1개 이상의 이미지가 있으면 유효한 것으로 간주
+            if found_count > 0:
+                suspect_valid = True
                 validation_results["valid_suspects"] += 1
-                print(f"  ✅ {suspect['name']}: 모든 이미지 검증 완료")
+                print(f"  ✅ {suspect['name']}: {found_count}개 이미지 발견")
             else:
-                print(f"  ❌ {suspect['name']}: 이미지 문제 있음")
+                print(f"  ❌ {suspect['name']}: 이미지 없음")
         
         return validation_results
     
@@ -199,22 +247,31 @@ class FaceDataProcessor:
         # 실제로는 InsightFace의 face detection과 alignment를 사용해야 함
         
         processed_count = 0
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
         
         for suspect in self.metadata['suspects']:
             name_en = suspect['name_en']
-            processed_dir = self.processed_dir / "aligned_faces" / name_en
+            # folder_name이 있으면 사용, 없으면 name_en 사용
+            folder_name = suspect.get('folder_name', name_en)
+            folder_path = self.images_dir / folder_name
+            processed_dir = self.processed_dir / "aligned_faces" / folder_name
             processed_dir.mkdir(parents=True, exist_ok=True)
             
             print(f"처리 중: {suspect['name']} ({name_en})")
             
-            for img_path in suspect['images']['required_angles']:
-                source_path = self.images_dir / img_path
+            # 폴더에 실제로 존재하는 모든 이미지 파일 찾기
+            if folder_path.exists():
+                actual_images = []
+                for ext in image_extensions:
+                    actual_images.extend(list(folder_path.glob(f"*{ext}")))
+                    actual_images.extend(list(folder_path.glob(f"*{ext.upper()}")))
                 
-                if source_path.exists():
+                for img_file in actual_images:
                     # 기본 전처리: 크기 조정 및 정규화
-                    processed_path = processed_dir / source_path.name
-                    self.preprocess_image(source_path, processed_path)
+                    processed_path = processed_dir / img_file.name
+                    self.preprocess_image(img_file, processed_path)
                     processed_count += 1
+                    print(f"  ✅ 처리 완료: {img_file.name}")
         
         print(f"✅ 총 {processed_count}개 이미지 전처리 완료")
         return processed_count
@@ -326,9 +383,30 @@ class FaceDataProcessor:
 ## ✅ 성공한 용의자들
 """
         
+        # 누락된 이미지가 있는 폴더명 수집
+        missing_folders = set()
+        for missing_path in validation_results['missing_images']:
+            try:
+                # Path 객체로 변환하여 폴더명 추출
+                path_obj = Path(missing_path)
+                # images 디렉토리 바로 아래의 폴더명 추출
+                # 예: data/suspects/images/criminal/front_1.jpg -> criminal
+                parts = path_obj.parts
+                if 'images' in parts:
+                    images_idx = parts.index('images')
+                    if images_idx + 1 < len(parts):
+                        missing_folders.add(parts[images_idx + 1])
+            except Exception:
+                # 경로 파싱 실패시 무시
+                pass
+        
         for suspect in self.metadata['suspects']:
-            if suspect['name_en'] not in [str(p).split('/')[-2] for p in validation_results['missing_images']]:
-                report += f"- {suspect['name']} ({suspect['name_en']}): {suspect['images']['total_count']}장\n"
+            folder_name = suspect.get('folder_name', suspect['name_en'])
+            # 누락된 이미지가 없는 용의자만 성공 목록에 추가
+            if folder_name not in missing_folders:
+                photo_reqs = suspect.get('photo_requirements', {})
+                total_count = photo_reqs.get('total_photos', 0)
+                report += f"- {suspect['name']} ({suspect['name_en']}): {total_count}장\n"
         
         if validation_results['missing_images']:
             report += "\n## ❌ 누락된 이미지들\n"

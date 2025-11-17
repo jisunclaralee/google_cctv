@@ -12,7 +12,38 @@ detect_bp = Blueprint('detect', __name__)
 
 @detect_bp.route('/detect', methods=['POST'])
 def detect_suspects():
-    """실시간 용의자 감지"""
+    """실시간 용의자 감지
+    ---
+    tags:
+      - Detection
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            image:
+              type: string
+              description: Base64 인코딩된 이미지 데이터
+            target_suspect_id:
+              type: string
+              description: 타겟 용의자 ID
+    responses:
+      200:
+        description: 감지 결과
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            detections:
+              type: array
+      500:
+        description: 서버 오류
+    """
     # ===============================================================================
     # **중요: 실시간 얼굴 감지 기능 구현 필요**
     # ===============================================================================
@@ -25,7 +56,54 @@ def detect_suspects():
 
 @detect_bp.route('/video_analysis', methods=['POST'])  
 def analyze_video():
-    """업로드된 비디오 전체 분석"""
+    """업로드된 비디오 전체 분석
+    ---
+    tags:
+      - Detection
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - video_path
+          properties:
+            video_path:
+              type: string
+              description: 분석할 비디오 파일 경로
+            target_suspect_id:
+              type: string
+              description: 타겟 용의자 ID
+              default: "1"
+    responses:
+      200:
+        description: 분석 결과
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            message:
+              type: string
+            detections:
+              type: array
+            summary:
+              type: object
+              properties:
+                total_frames:
+                  type: integer
+                faces_detected:
+                  type: integer
+                suspect_matches:
+                  type: integer
+      400:
+        description: 잘못된 요청
+      500:
+        description: 서버 오류
+    """
     try:
         data = request.get_json()
         video_path = data.get('video_path')
