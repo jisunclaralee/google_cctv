@@ -5,6 +5,7 @@ InsightFace (RetinaFace + ArcFace) 모델 통합
 
 from flask import Flask, request, jsonify, render_template_string
 from flask_cors import CORS
+from flasgger import Swagger
 import os
 import cv2
 import numpy as np
@@ -25,6 +26,56 @@ from api.suspects import suspects_bp
 
 app = Flask(__name__)
 CORS(app)
+
+# Swagger UI 설정
+swagger_config = {
+    "headers": [],
+    "specs": [
+        {
+            "endpoint": "apispec",
+            "route": "/apispec.json",
+            "rule_filter": lambda rule: True,
+            "model_filter": lambda tag: True,
+        }
+    ],
+    "static_url_path": "/flasgger_static",
+    "swagger_ui": True,
+    "specs_route": "/docs"
+}
+
+swagger_template = {
+    "swagger": "2.0",
+    "info": {
+        "title": "CCTV 용의자 식별 시스템 API",
+        "description": "InsightFace (RetinaFace + ArcFace) 기반 얼굴 인식 API",
+        "version": "1.0.0",
+        "contact": {
+            "name": "API Support"
+        }
+    },
+    "basePath": "/",
+    "schemes": ["http", "https"],
+    "tags": [
+        {
+            "name": "Status",
+            "description": "시스템 상태 확인"
+        },
+        {
+            "name": "Detection",
+            "description": "얼굴 감지 및 인식"
+        },
+        {
+            "name": "Suspects",
+            "description": "용의자 관리"
+        },
+        {
+            "name": "Upload",
+            "description": "파일 업로드"
+        }
+    ]
+}
+
+swagger = Swagger(app, config=swagger_config, template=swagger_template)
 
 # 설정
 app.config['UPLOAD_FOLDER'] = 'data/videos'
@@ -93,7 +144,45 @@ def index():
 
 @app.route('/api/status')
 def status():
-    """시스템 상태 확인 API"""
+    """시스템 상태 확인 API
+    ---
+    tags:
+      - Status
+    responses:
+      200:
+        description: 시스템 상태 정보
+        schema:
+          type: object
+          properties:
+            timestamp:
+              type: string
+              example: "2025-11-18T03:20:00"
+            models:
+              type: object
+              properties:
+                face_detector:
+                  type: boolean
+                face_recognizer:
+                  type: boolean
+                embedding_db:
+                  type: boolean
+            database:
+              type: object
+              properties:
+                suspects_count:
+                  type: integer
+                embeddings_loaded:
+                  type: boolean
+            system:
+              type: object
+              properties:
+                opencv_version:
+                  type: string
+                upload_folder:
+                  type: string
+                max_file_size_mb:
+                  type: integer
+    """
     global face_detector, face_recognizer, embedding_db
     
     status_info = {
@@ -118,7 +207,65 @@ def status():
 
 @app.route('/api/detect_frame', methods=['POST'])
 def detect_frame():
-    """단일 프레임에서 얼굴 감지 및 인식"""
+    """단일 프레임에서 얼굴 감지 및 인식
+    ---
+    tags:
+      - Detection
+    consumes:
+      - application/json
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - image
+          properties:
+            image:
+              type: string
+              description: Base64 인코딩된 이미지 데이터 (data:image/jpeg;base64,... 형식)
+            target_suspect_id:
+              type: string
+              description: 타겟 용의자 ID
+              default: "1"
+    responses:
+      200:
+        description: 감지 결과
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            detections:
+              type: array
+              items:
+                type: object
+                properties:
+                  bbox:
+                    type: array
+                    items:
+                      type: number
+                  confidence:
+                    type: number
+                  match:
+                    type: object
+                  timestamp:
+                    type: string
+            frame_info:
+              type: object
+              properties:
+                width:
+                  type: integer
+                height:
+                  type: integer
+                faces_detected:
+                  type: integer
+      400:
+        description: 잘못된 요청
+      500:
+        description: 서버 오류
+    """
     # ===============================================================================
     # **중요: 실제 얼굴 인식 파이프라인 구현 필요**
     # ===============================================================================
@@ -194,7 +341,25 @@ def detect_frame():
 
 @app.route('/api/suspects')
 def get_suspects():
-    """등록된 용의자 목록 반환"""
+    """등록된 용의자 목록 반환
+    ---
+    tags:
+      - Suspects
+    responses:
+      200:
+        description: 용의자 목록
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            suspects:
+              type: array
+              items:
+                type: object
+      500:
+        description: 서버 오류
+    """
     global embedding_db
     
     try:
@@ -211,7 +376,50 @@ def get_suspects():
 
 @app.route('/api/add_suspect', methods=['POST'])  
 def add_suspect():
-    """새로운 용의자 추가"""
+    """새로운 용의자 추가
+    ---
+    tags:
+      - Suspects
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: name
+        type: string
+        required: true
+        description: 용의자 이름
+      - in: formData
+        name: image
+        type: file
+        required: true
+        description: 용의자 얼굴 이미지
+      - in: formData
+        name: criminal_record
+        type: string
+        description: 범죄 이력 (쉼표로 구분)
+      - in: formData
+        name: risk_level
+        type: string
+        enum: [low, medium, high]
+        default: medium
+        description: 위험도 레벨
+    responses:
+      200:
+        description: 용의자 등록 성공
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            suspect_id:
+              type: string
+            message:
+              type: string
+      400:
+        description: 잘못된 요청
+      500:
+        description: 서버 오류
+    """
     global face_detector, face_recognizer, embedding_db
     
     try:

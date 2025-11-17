@@ -11,7 +11,48 @@ upload_bp = Blueprint('upload', __name__)
 
 @upload_bp.route('/upload', methods=['POST'])
 def upload_video():
-    """비디오 파일 업로드"""
+    """비디오 파일 업로드
+    ---
+    tags:
+      - Upload
+    consumes:
+      - multipart/form-data
+    parameters:
+      - in: formData
+        name: video
+        type: file
+        required: true
+        description: 업로드할 비디오 파일 (mp4, avi, mov, wmv)
+    responses:
+      200:
+        description: 업로드 성공
+        schema:
+          type: object
+          properties:
+            success:
+              type: boolean
+            filepath:
+              type: string
+            filename:
+              type: string
+            video_info:
+              type: object
+              properties:
+                frame_count:
+                  type: integer
+                fps:
+                  type: number
+                width:
+                  type: integer
+                height:
+                  type: integer
+                duration:
+                  type: number
+      400:
+        description: 잘못된 요청
+      500:
+        description: 서버 오류
+    """
     # ===============================================================================
     # **중요: 실제 얼굴 인식 처리 로직 구현 필요**
     # ===============================================================================
